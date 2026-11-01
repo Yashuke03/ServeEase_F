@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/common/Button';
 import DashboardLayout from '../components/layout/DashboardLayout';
+import AvatarUpload from '../components/common/AvatarUpload';
 import Autocomplete from '../components/common/Autocomplete';
 import { SUPPORTED_CITIES, getCityDisplayName, getCityById } from '../data/cities';
 import { SERVICE_CATEGORIES } from '../data/sampleData';
@@ -35,7 +36,7 @@ import { validateIndianMobile } from '../utils/validation';
  * primary trade, service areas, offered packages, pricing, and active availability.
  */
 export default function ProviderProfile() {
-  const { user, updateProfile } = useAuth();
+  const { user, setUser, updateProfile } = useAuth();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -463,20 +464,13 @@ export default function ProviderProfile() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Account Card */}
             <div className="card" style={{ padding: '1.75rem', textAlign: 'center' }}>
-              <div style={{
-                width: '5.2rem',
-                height: '5.2rem',
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: 'var(--primary-100)',
-                color: 'var(--primary-700)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '2.2rem',
-                fontWeight: 800,
-                margin: '0 auto 1.25rem'
-              }}>
-                {userInitial}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <AvatarUpload
+                  user={user}
+                  onAvatarChange={(updatedUser) => setUser(updatedUser)}
+                  size="5.5rem"
+                  shape="circle"
+                />
               </div>
 
               <h2 style={{ fontSize: '1.35rem', marginBottom: '0.25rem' }}>{user?.name || 'Service Provider'}</h2>

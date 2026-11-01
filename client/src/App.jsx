@@ -50,6 +50,7 @@ import ProviderMap from './pages/ProviderMap';
 
 // Administrator Role View
 import AdminDashboard from './pages/AdminDashboard';
+import AdminProfile from './pages/AdminProfile';
 
 /**
  * Smart Profile Router: redirects generic /profile to role-appropriate profile view
@@ -58,6 +59,9 @@ function ProfileRedirect() {
   const { user } = useAuth();
   if (user?.role === 'provider') {
     return <Navigate to="/provider/profile" replace />;
+  }
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin/profile" replace />;
   }
   return <Navigate to="/customer/profile" replace />;
 }
@@ -251,6 +255,14 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/profile"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminProfile />
               </ProtectedRoute>
             }
           />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { AlertCircle, LogIn, CheckCircle2, Mail } from 'lucide-react';
 import PasswordInput from '../components/common/PasswordInput';
@@ -13,7 +13,7 @@ import { validateEmail } from '../utils/validation';
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, loginWithGoogle, authError } = useAuth();
+  const { login, loginWithGoogle, authError, setAuthError } = useAuth();
 
   const [role, setRole] = useState('customer'); // 'customer' | 'provider' | 'admin'
   const [email, setEmail] = useState('');
@@ -23,9 +23,17 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  // Clear stale auth errors on fresh direct visits to /login
+  useEffect(() => {
+    if (!location.state?.from && setAuthError) {
+      setAuthError(null);
+    }
+  }, [location.state, setAuthError]);
+
   const handleTabChange = (selectedRole) => {
     setRole(selectedRole);
     setFormError('');
+    if (setAuthError) setAuthError(null);
   };
 
   const handleSuccessfulAuth = (authenticatedUser) => {
@@ -56,7 +64,7 @@ export default function Login() {
     setFormError('');
     try {
       setIsGoogleLoading(true);
-      const user = await loginWithGoogle(role);
+      const user = await loginWithGoogle(role, {}, rememberMe);
       handleSuccessfulAuth(user);
     } catch (err) {
       setFormError(err.message || 'Google sign-in failed. Please try again.');
@@ -83,7 +91,7 @@ export default function Login() {
 
     try {
       setIsLoading(true);
-      const user = await login(emailCheck.normalized, password, role);
+      const user = await login(emailCheck.normalized, password, role, rememberMe);
       handleSuccessfulAuth(user);
     } catch (err) {
       setFormError(err.message || 'Authentication failed. Please check your credentials.');

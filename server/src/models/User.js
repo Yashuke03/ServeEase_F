@@ -70,6 +70,15 @@ const userSchema = new mongoose.Schema(
       default: '',
       index: true
     },
+    avatar: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    avatarFileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null
+    },
     termsAccepted: {
       type: Boolean,
       default: true

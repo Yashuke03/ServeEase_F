@@ -6,18 +6,19 @@ import mongoose from 'mongoose';
  * the project's active MongoDB connection.
  */
 
-const BUCKET_NAME = 'verification_documents';
+const DEFAULT_BUCKET_NAME = 'verification_documents';
 
 /**
  * Returns a GridFSBucket bound to the active database connection.
+ * @param {string} [bucketName] - Name of the bucket (defaults to 'verification_documents')
  */
-export const getGridFSBucket = () => {
+export const getGridFSBucket = (bucketName = DEFAULT_BUCKET_NAME) => {
   const db = mongoose.connection.db;
   if (!db) {
     throw new Error('MongoDB database connection is not established for GridFS.');
   }
   return new mongoose.mongo.GridFSBucket(db, {
-    bucketName: BUCKET_NAME
+    bucketName
   });
 };
 
@@ -27,11 +28,12 @@ export const getGridFSBucket = () => {
  * 
  * @param {Buffer} buffer - File buffer
  * @param {string} filename - Stored filename
- * @param {Object} metadata - Optional GridFS metadata
+ * @param {Object} [metadata] - Optional GridFS metadata
+ * @param {string} [bucketName] - Bucket name ('verification_documents' or 'avatars')
  * @returns {Promise<mongoose.Types.ObjectId>} Stored GridFS file ID
  */
-export const uploadBufferToGridFS = async (buffer, filename, metadata = {}) => {
-  const bucket = getGridFSBucket();
+export const uploadBufferToGridFS = async (buffer, filename, metadata = {}, bucketName = DEFAULT_BUCKET_NAME) => {
+  const bucket = getGridFSBucket(bucketName);
   
   return new Promise((resolve, reject) => {
     const uploadStream = bucket.openUploadStream(filename, {
@@ -57,10 +59,11 @@ export const uploadBufferToGridFS = async (buffer, filename, metadata = {}) => {
  * Opens a readable download stream for a given GridFS file ID.
  * 
  * @param {string|mongoose.Types.ObjectId} fileId
+ * @param {string} [bucketName]
  * @returns {GridFSBucketReadStream}
  */
-export const openDownloadStreamFromGridFS = (fileId) => {
-  const bucket = getGridFSBucket();
+export const openDownloadStreamFromGridFS = (fileId, bucketName = DEFAULT_BUCKET_NAME) => {
+  const bucket = getGridFSBucket(bucketName);
   const objectId = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
   return bucket.openDownloadStream(objectId);
 };
@@ -69,14 +72,15 @@ export const openDownloadStreamFromGridFS = (fileId) => {
  * Deletes a file and its chunks from GridFS.
  * 
  * @param {string|mongoose.Types.ObjectId} fileId
+ * @param {string} [bucketName]
  */
-export const deleteFromGridFS = async (fileId) => {
+export const deleteFromGridFS = async (fileId, bucketName = DEFAULT_BUCKET_NAME) => {
   try {
-    const bucket = getGridFSBucket();
+    const bucket = getGridFSBucket(bucketName);
     const objectId = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
     await bucket.delete(objectId);
   } catch (err) {
-    console.warn(`GridFS file ${fileId} deletion notice:`, err.message);
+    console.warn(`GridFS file ${fileId} deletion notice (${bucketName}):`, err.message);
   }
 };
 

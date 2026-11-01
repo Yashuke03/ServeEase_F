@@ -3,15 +3,30 @@ import {
   getMyProfile, 
   updateMyProfile,
   getProfileById,
-  updateProfileById
+  updateProfileById,
+  uploadUserAvatar,
+  deleteUserAvatar,
+  streamAvatar
 } from '../controllers/userController.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorizeRole.js';
+import { handleAvatarUploadMiddleware } from '../middleware/upload.js';
 
 const router = express.Router();
 
-// All user routes require valid authentication
+/**
+ * Public avatar streaming endpoint (no auth headers required for HTML <img> tags)
+ */
+router.get('/avatar/:fileId', streamAvatar);
+
+// All subsequent user management routes require valid authentication
 router.use(authenticate);
+
+/**
+ * Avatar management endpoints (current authenticated user)
+ */
+router.post('/profile/avatar', handleAvatarUploadMiddleware, uploadUserAvatar);
+router.delete('/profile/avatar', deleteUserAvatar);
 
 /**
  * Profile endpoints (current authenticated user)

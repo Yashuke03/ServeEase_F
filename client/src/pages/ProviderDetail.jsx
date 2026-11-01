@@ -21,7 +21,7 @@ import BookingModal from '../components/booking/BookingModal';
 import ServiceMap from '../components/map/ServiceMap';
 import { useAuth } from '../context/AuthContext';
 import { SAMPLE_PROVIDERS } from '../data/sampleData';
-import { providerApi, reviewApi } from '../services/api';
+import { providerApi, reviewApi, getAvatarUrl } from '../services/api';
 import { connectSocket } from '../services/socket';
 import { getCityDisplayName } from '../data/cities';
 
@@ -176,7 +176,7 @@ export default function ProviderDetail() {
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '2rem', flexWrap: 'wrap' }}>
             <img
-              src={provider.avatar || defaultAvatar}
+              src={getAvatarUrl(provider.avatar) || defaultAvatar}
               alt={provider.name}
               style={{
                 width: '7.5rem',

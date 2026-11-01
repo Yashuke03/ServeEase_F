@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/common/Button';
 import DashboardLayout from '../components/layout/DashboardLayout';
+import AvatarUpload from '../components/common/AvatarUpload';
 import { SUPPORTED_CITIES, getCityDisplayName } from '../data/cities';
 import { userApi } from '../services/api';
 import { validateIndianMobile } from '../utils/validation';
@@ -25,7 +26,7 @@ import { validateIndianMobile } from '../utils/validation';
  * (name, phone number, and primary city). Email and role remain read-only.
  */
 export default function CustomerProfile() {
-  const { user, updateProfile } = useAuth();
+  const { user, setUser, updateProfile } = useAuth();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -183,20 +184,13 @@ export default function CustomerProfile() {
         <div className="profile-grid">
           {/* Left Column: Account Summary Card */}
           <div className="card" style={{ padding: '1.75rem', textAlign: 'center' }}>
-            <div style={{
-              width: '5rem',
-              height: '5rem',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--primary-100)',
-              color: 'var(--primary-700)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '2rem',
-              fontWeight: 800,
-              margin: '0 auto 1.25rem'
-            }}>
-              {userInitial}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <AvatarUpload
+                user={user}
+                onAvatarChange={(updatedUser) => setUser(updatedUser)}
+                size="5.25rem"
+                shape="circle"
+              />
             </div>
 
             <h2 style={{ fontSize: '1.35rem', marginBottom: '0.25rem' }}>{user?.name || 'Customer'}</h2>

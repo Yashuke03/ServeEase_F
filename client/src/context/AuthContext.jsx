@@ -109,7 +109,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
     const handleUserInteraction = () => {
-      recordUserActivity();
+      if (userRef.current) {
+        recordUserActivity();
+      }
     };
 
     activityEvents.forEach((evt) => {
@@ -132,14 +134,14 @@ export const AuthProvider = ({ children }) => {
       const idleTime = Date.now() - lastActivity;
 
       if (idleTime >= INACTIVITY_TIMEOUT_MS) {
-        logoutRef.current('You have been logged out due to 15 minutes of inactivity. Please sign in again.');
+        logoutRef.current('Session expired. Please log in again.');
       } else if (document.visibilityState === 'visible') {
         checkAuthStatus(true);
       }
     };
 
     const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && userRef.current) {
         handleIdleAndRenewal();
       }
     };
@@ -170,16 +172,18 @@ export const AuthProvider = ({ children }) => {
   }, [checkAuthStatus]);
 
   /**
-   * Login with email, password, and optional role
+   * Login with email, password, optional role, and Remember Me preference
    * Tries Firebase Authentication first if available, with graceful fallback to legacy MongoDB auth
    */
-  const login = async (email, password, role) => {
+  const login = async (email, password, role, rememberMe = false) => {
     setAuthError(null);
     try {
       if (isFirebaseReady()) {
+        let fbLoggedIn = false;
         try {
-          const { idToken } = await firebaseSignInWithEmail(email, password);
-          const data = await authApi.firebaseLogin(idToken, { role });
+          const { idToken } = await firebaseSignInWithEmail(email, password, rememberMe);
+          fbLoggedIn = true;
+          const data = await authApi.firebaseLogin(idToken, { role, rememberMe });
           if (data && data.success && data.user) {
             setUser(data.user);
             try {
@@ -190,6 +194,10 @@ export const AuthProvider = ({ children }) => {
             return data.user;
           }
         } catch (fbErr) {
+          // If Firebase succeeded but backend sync failed, rollback Firebase session
+          if (fbLoggedIn) {
+            await firebaseSignOut().catch(() => {});
+          }
           // If Firebase rejects credentials because user was created pre-Firebase in legacy database,
           // fallback to legacy login
           const isUserNotFoundInFirebase =
@@ -203,7 +211,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Legacy fallback
-      const data = await authApi.login(email, password, role);
+      const data = await authApi.login(email, password, role, rememberMe);
       if (!data || !data.success) {
         throw new Error(data?.error || 'Authentication failed. Please verify your credentials.');
       }
@@ -223,14 +231,16 @@ export const AuthProvider = ({ children }) => {
   /**
    * Sign In or Sign Up with Google
    */
-  const loginWithGoogle = async (role = 'customer', profileData = {}) => {
+  const loginWithGoogle = async (role = 'customer', profileData = {}, rememberMe = false) => {
     setAuthError(null);
+    let fbLoggedIn = false;
     try {
       if (!isFirebaseReady()) {
         throw new Error('Google Sign-In is not configured. Please check client Firebase environment variables.');
       }
-      const { idToken } = await firebaseSignInWithGoogle();
-      const data = await authApi.firebaseLogin(idToken, { role, ...profileData });
+      const { idToken } = await firebaseSignInWithGoogle(rememberMe);
+      fbLoggedIn = true;
+      const data = await authApi.firebaseLogin(idToken, { role, rememberMe, ...profileData });
       if (!data || !data.success || !data.user) {
         throw new Error(data?.error || 'Failed to authenticate with Google.');
       }
@@ -242,6 +252,10 @@ export const AuthProvider = ({ children }) => {
       }
       return data.user;
     } catch (err) {
+      // Clean up Firebase session if backend synchronization failed
+      if (fbLoggedIn) {
+        await firebaseSignOut().catch(() => {});
+      }
       setAuthError(err.message);
       throw err;
     }
@@ -290,6 +304,11 @@ export const AuthProvider = ({ children }) => {
     }
     if (data.user) {
       setUser(data.user);
+      try {
+        localStorage.setItem('serveease_last_activity', String(Date.now()));
+      } catch {
+        // ignore
+      }
     }
     return data;
   };
@@ -299,6 +318,7 @@ export const AuthProvider = ({ children }) => {
     setUser,
     loading,
     authError,
+    setAuthError,
     isAuthenticated: !!user,
     role: user?.role || null,
     login,

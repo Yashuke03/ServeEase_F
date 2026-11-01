@@ -38,10 +38,10 @@ export const parseDurationToMs = (durationStr) => {
 /**
  * JWT Access Token Generator
  * Signs user ID and role into the token with configurable expiration (default: 15m)
+ * Accepts either string duration (e.g. '15m') or number in seconds (e.g. 900)
  */
-export const generateToken = (userId, role) => {
+export const generateToken = (userId, role, expiresIn = process.env.JWT_EXPIRES_IN || '15m') => {
   const secret = getJwtSecret();
-  const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
   return jwt.sign(
     { userId, role },
     secret,
@@ -51,13 +51,37 @@ export const generateToken = (userId, role) => {
 
 /**
  * JWT Refresh Token Generator
- * Signs user ID and role into long-lived refresh token (default: 1d)
+ * Signs user ID, role, and absolute expiry metadata into refresh token (max: 24h)
+ * @param {string|Object} userId
+ * @param {string} role
+ * @param {Object} [options]
+ * @param {number} [options.absExp] - Absolute expiration timestamp in epoch seconds (defaults to now + 24h)
+ * @param {boolean} [options.rememberMe] - Whether persistent session was requested
+ * @param {number|string} [options.expiresIn] - Token expiration duration (defaults to remaining time or '1d')
  */
-export const generateRefreshToken = (userId, role) => {
+export const generateRefreshToken = (userId, role, options = {}) => {
   const secret = getJwtRefreshSecret();
-  const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '1d';
+  const nowSec = Math.floor(Date.now() / 1000);
+  const default24hSec = 24 * 60 * 60;
+  const absExp = typeof options.absExp === 'number' && Number.isFinite(options.absExp)
+    ? Math.floor(options.absExp)
+    : nowSec + default24hSec;
+  const rememberMe = Boolean(options.rememberMe);
+
+  // If explicit expiresIn passed, use it, else remaining seconds until absExp (capped at 24h)
+  const remainingSec = Math.max(0, absExp - nowSec);
+  const expiresIn = options.expiresIn !== undefined
+    ? options.expiresIn
+    : Math.min(default24hSec, remainingSec);
+
   return jwt.sign(
-    { userId, role, type: 'refresh' },
+    {
+      userId,
+      role,
+      type: 'refresh',
+      absExp,
+      rememberMe
+    },
     secret,
     { expiresIn }
   );
@@ -65,26 +89,57 @@ export const generateRefreshToken = (userId, role) => {
 
 /**
  * Helper to set HttpOnly Cookies with security best practices
+ * Supports session cookies (when rememberMe is false) vs persistent cookies (when rememberMe is true)
+ * 
+ * @param {Response} res
+ * @param {string} token
+ * @param {string} [refreshToken]
+ * @param {boolean} [rememberMe=false]
+ * @param {number} [refreshMaxAgeMs=null] - MaxAge in ms for refreshToken (bounded by 24h absolute session expiry)
+ * @param {number} [accessMaxAgeMs=null] - MaxAge in ms for accessToken (bounded by 15m or remaining session)
  */
-export const setAuthCookie = (res, token, refreshToken = null) => {
+export const setAuthCookie = (
+  res,
+  token,
+  refreshToken = null,
+  rememberMe = false,
+  refreshMaxAgeMs = null,
+  accessMaxAgeMs = null
+) => {
   const isProduction = process.env.NODE_ENV === 'production';
-  const accessMaxAge = parseDurationToMs(process.env.JWT_EXPIRES_IN || '15m');
-  res.cookie('token', token, {
+  const defaultAccessMs = parseDurationToMs(process.env.JWT_EXPIRES_IN || '15m');
+  const accessMs = typeof accessMaxAgeMs === 'number' ? accessMaxAgeMs : defaultAccessMs;
+
+  const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
     sameSite: isProduction ? 'none' : 'lax',
-    maxAge: accessMaxAge
-  });
+    path: '/'
+  };
 
-  if (refreshToken) {
-    const refreshMaxAge = parseDurationToMs(process.env.JWT_REFRESH_EXPIRES_IN || '1d');
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      path: '/',
-      maxAge: refreshMaxAge
+  // If rememberMe is enabled, set explicit Max-Age for persistence across browser restarts.
+  // If rememberMe is false, omit maxAge/expires so the browser treats them as Session Cookies!
+  if (rememberMe) {
+    res.cookie('token', token, {
+      ...cookieOptions,
+      maxAge: accessMs
     });
+
+    if (refreshToken) {
+      const defaultRefreshMs = parseDurationToMs(process.env.JWT_REFRESH_EXPIRES_IN || '1d');
+      const refreshMs = typeof refreshMaxAgeMs === 'number' ? refreshMaxAgeMs : defaultRefreshMs;
+      res.cookie('refreshToken', refreshToken, {
+        ...cookieOptions,
+        maxAge: refreshMs
+      });
+    }
+  } else {
+    // Session cookies: destroyed when user closes the browser
+    res.cookie('token', token, cookieOptions);
+
+    if (refreshToken) {
+      res.cookie('refreshToken', refreshToken, cookieOptions);
+    }
   }
 };
 
@@ -330,7 +385,7 @@ export const register = async (req, res, next) => {
  */
 export const login = async (req, res, next) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password, role, rememberMe = false } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -405,9 +460,16 @@ export const login = async (req, res, next) => {
     }
 
     // Issue JWT Access Token & Refresh Token with HttpOnly cookies
+    const isRememberMe = Boolean(rememberMe);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const absExp = nowSec + (24 * 60 * 60); // 24 hours absolute session limit
+
     const token = generateToken(user._id, user.role);
-    const refreshToken = generateRefreshToken(user._id, user.role);
-    setAuthCookie(res, token, refreshToken);
+    const refreshToken = generateRefreshToken(user._id, user.role, {
+      absExp,
+      rememberMe: isRememberMe
+    });
+    setAuthCookie(res, token, refreshToken, isRememberMe, 24 * 60 * 60 * 1000);
 
     return res.status(200).json({
       success: true,
@@ -494,17 +556,49 @@ export const refreshToken = async (req, res, next) => {
       });
     }
 
-    // Issue fresh access token (15m) and fresh refresh token (1d)
-    const newAccessToken = generateToken(user._id, user.role);
-    const newRefreshToken = generateRefreshToken(user._id, user.role);
-    setAuthCookie(res, newAccessToken, newRefreshToken);
+    // Enforce absolute 24-hour expiration from original login (cannot be extended indefinitely)
+    const nowSec = Math.floor(Date.now() / 1000);
+    const absExp = typeof decoded.absExp === 'number' ? decoded.absExp : decoded.exp;
+    const remainingSec = absExp - nowSec;
+
+    if (remainingSec <= 0) {
+      clearAuthCookie(res);
+      return res.status(401).json({
+        success: false,
+        error: 'Your 24-hour session limit has expired. Please sign in again.',
+        code: 'SESSION_MAX_EXPIRED'
+      });
+    }
+
+    // Access token lifetime: 15m (900s), but cannot outlive the remaining absolute session
+    const accessLifetimeSec = Math.min(15 * 60, remainingSec);
+    const newAccessToken = generateToken(user._id, user.role, accessLifetimeSec);
+
+    // Refresh token retains the EXACT SAME absExp and rememberMe preference, expiring in remainingSec
+    const isRememberMe = Boolean(decoded.rememberMe);
+    const newRefreshToken = generateRefreshToken(user._id, user.role, {
+      absExp,
+      rememberMe: isRememberMe,
+      expiresIn: remainingSec
+    });
+
+    setAuthCookie(
+      res,
+      newAccessToken,
+      newRefreshToken,
+      isRememberMe,
+      remainingSec * 1000,
+      accessLifetimeSec * 1000
+    );
 
     return res.status(200).json({
       success: true,
       message: 'Session refreshed successfully.',
       token: newAccessToken,
       refreshToken: newRefreshToken,
-      user: user.toSafeObject()
+      user: user.toSafeObject(),
+      expiresIn: accessLifetimeSec,
+      sessionRemainingSeconds: remainingSec
     });
   } catch (error) {
     return next(error);
@@ -713,7 +807,7 @@ export const resetPassword = async (req, res, next) => {
  */
 export const verifyEmailOtp = async (req, res, next) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, rememberMe = false } = req.body;
     const targetEmail = email || req.user?.email;
 
     if (!targetEmail || !otp) {
@@ -761,9 +855,16 @@ export const verifyEmailOtp = async (req, res, next) => {
         existingUser.emailVerificationOtpExpires = null;
         await existingUser.save();
 
+        const isRememberMe = Boolean(rememberMe);
+        const nowSec = Math.floor(Date.now() / 1000);
+        const absExp = nowSec + (24 * 60 * 60);
+
         const token = generateToken(existingUser._id, existingUser.role);
-        const refreshToken = generateRefreshToken(existingUser._id, existingUser.role);
-        setAuthCookie(res, token, refreshToken);
+        const refreshToken = generateRefreshToken(existingUser._id, existingUser.role, {
+          absExp,
+          rememberMe: isRememberMe
+        });
+        setAuthCookie(res, token, refreshToken, isRememberMe, 24 * 60 * 60 * 1000);
         return res.status(200).json({
           success: true,
           message: 'Email address verified successfully.',
@@ -844,9 +945,16 @@ export const verifyEmailOtp = async (req, res, next) => {
     await PendingRegistration.deleteOne({ _id: pending._id });
 
     // Issue JWT Access Token & Refresh Token with HttpOnly cookies
+    const isRememberMe = Boolean(rememberMe);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const absExp = nowSec + (24 * 60 * 60);
+
     const token = generateToken(newUser._id, newUser.role);
-    const refreshToken = generateRefreshToken(newUser._id, newUser.role);
-    setAuthCookie(res, token, refreshToken);
+    const refreshToken = generateRefreshToken(newUser._id, newUser.role, {
+      absExp,
+      rememberMe: isRememberMe
+    });
+    setAuthCookie(res, token, refreshToken, isRememberMe, 24 * 60 * 60 * 1000);
 
     return res.status(201).json({
       success: true,
@@ -974,7 +1082,7 @@ export const resendEmailVerificationOtp = async (req, res, next) => {
  */
 export const firebaseLogin = async (req, res, next) => {
   try {
-    const { idToken, role, name, phoneNumber, city, providerDetails } = req.body;
+    const { idToken, role, name, phoneNumber, city, providerDetails, rememberMe = false } = req.body;
 
     if (!idToken || typeof idToken !== 'string' || !idToken.trim()) {
       return res.status(400).json({
@@ -1067,9 +1175,16 @@ export const firebaseLogin = async (req, res, next) => {
       }
 
       // Issue standard ServeEase JWT cookies & tokens for backward compatibility
+      const isRememberMe = Boolean(rememberMe);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const absExp = nowSec + (24 * 60 * 60);
+
       const token = generateToken(user._id, user.role);
-      const refreshToken = generateRefreshToken(user._id, user.role);
-      setAuthCookie(res, token, refreshToken);
+      const refreshToken = generateRefreshToken(user._id, user.role, {
+        absExp,
+        rememberMe: isRememberMe
+      });
+      setAuthCookie(res, token, refreshToken, isRememberMe, 24 * 60 * 60 * 1000);
 
       return res.status(200).json({
         success: true,
@@ -1177,9 +1292,16 @@ export const firebaseLogin = async (req, res, next) => {
       status: 'active'
     });
 
+    const isRememberMe = Boolean(rememberMe);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const absExp = nowSec + (24 * 60 * 60);
+
     const token = generateToken(newUser._id, newUser.role);
-    const refreshToken = generateRefreshToken(newUser._id, newUser.role);
-    setAuthCookie(res, token, refreshToken);
+    const refreshToken = generateRefreshToken(newUser._id, newUser.role, {
+      absExp,
+      rememberMe: isRememberMe
+    });
+    setAuthCookie(res, token, refreshToken, isRememberMe, 24 * 60 * 60 * 1000);
 
     return res.status(201).json({
       success: true,

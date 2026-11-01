@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   ShieldCheck, 
   Users, 
@@ -672,6 +673,12 @@ export default function AdminDashboard() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Link to="/admin/profile" style={{ textDecoration: 'none' }}>
+            <Button variant="outline" size="sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <User size={14} />
+              <span>Operator Profile</span>
+            </Button>
+          </Link>
           <button
             type="button"
             onClick={fetchStatsAndHealth}

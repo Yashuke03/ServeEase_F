@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { 
-  Wrench, 
   Menu, 
   X, 
   User, 
@@ -71,7 +70,7 @@ export default function Navbar() {
           {/* Brand Logo - Links to role dashboard when logged in */}
           <Link to={brandHomeLink} className="brand-logo" onClick={closeMobileMenu} id="brand-logo-link">
             <div className="brand-logo-icon">
-              <Wrench size={18} />
+              <img src="/logo.png" alt="ServeEase Logo" />
             </div>
             <span>Serve<span className="brand-name-highlight">Ease</span></span>
           </Link>
@@ -253,6 +252,13 @@ export default function Navbar() {
                   </Button>
                 )}
 
+                {user.role === 'admin' && (
+                  <Button to="/admin/profile" variant="outline" size="sm">
+                    <Shield size={15} />
+                    Admin Profile
+                  </Button>
+                )}
+
                 <button
                   onClick={handleLogout}
                   className="btn btn-outline btn-sm"
@@ -394,6 +400,11 @@ export default function Navbar() {
                 <li>
                   <NavLink to="/services" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeMobileMenu}>
                     Services Directory
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/admin/profile" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeMobileMenu}>
+                    Admin Profile
                   </NavLink>
                 </li>
               </>

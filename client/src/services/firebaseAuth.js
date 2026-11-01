@@ -4,7 +4,10 @@ import {
   signInWithPopup,
   signOut,
   sendPasswordResetEmail,
-  sendEmailVerification
+  sendEmailVerification,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence
 } from 'firebase/auth';
 import { auth, googleProvider, isFirebaseConfigured } from '../config/firebase.js';
 
@@ -13,6 +16,21 @@ import { auth, googleProvider, isFirebaseConfigured } from '../config/firebase.j
  */
 
 export const isFirebaseReady = () => isFirebaseConfigured && auth !== null;
+
+/**
+ * Configure Firebase persistence based on Remember Me preference:
+ * - true  -> browserLocalPersistence (stored in IndexedDB across browser restarts)
+ * - false -> browserSessionPersistence (stored only for the active browser session)
+ */
+export const configureFirebasePersistence = async (rememberMe = false) => {
+  if (!isFirebaseReady()) return;
+  try {
+    const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+    await setPersistence(auth, persistence);
+  } catch (err) {
+    console.warn('Could not set Firebase persistence mode:', err.message);
+  }
+};
 
 /**
  * Maps Firebase Auth error codes to clear, actionable user messages
@@ -49,11 +67,12 @@ export const formatFirebaseAuthError = (err) => {
 /**
  * Sign in with Email and Password via Firebase
  */
-export const firebaseSignInWithEmail = async (email, password) => {
+export const firebaseSignInWithEmail = async (email, password, rememberMe = false) => {
   if (!isFirebaseReady()) {
     throw new Error('Firebase Authentication is not configured in client/.env.');
   }
   try {
+    await configureFirebasePersistence(rememberMe);
     const credential = await signInWithEmailAndPassword(auth, email, password);
     const idToken = await credential.user.getIdToken();
     return { user: credential.user, idToken };
@@ -97,11 +116,12 @@ export const firebaseRegisterWithEmail = async (email, password) => {
 /**
  * Sign in or Sign up with Google via Firebase Popup
  */
-export const firebaseSignInWithGoogle = async () => {
+export const firebaseSignInWithGoogle = async (rememberMe = false) => {
   if (!isFirebaseReady()) {
     throw new Error('Firebase Authentication is not configured in client/.env.');
   }
   try {
+    await configureFirebasePersistence(rememberMe);
     const credential = await signInWithPopup(auth, googleProvider);
     const idToken = await credential.user.getIdToken();
     return { user: credential.user, idToken };

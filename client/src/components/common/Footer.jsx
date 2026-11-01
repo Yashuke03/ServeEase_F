@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Wrench, Mail, Phone, MapPin, ShieldCheck, GraduationCap } from 'lucide-react';
+import { Mail, Phone, MapPin, ShieldCheck, GraduationCap } from 'lucide-react';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -17,7 +17,7 @@ export default function Footer() {
           <div className="footer-brand">
             <div className="brand-logo" style={{ color: '#ffffff' }}>
               <div className="brand-logo-icon">
-                <Wrench size={18} />
+                <img src="/logo.png" alt="ServeEase Logo" />
               </div>
               <span>Serve<span style={{ color: '#4ade80' }}>Ease</span></span>
             </div>

@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
+import sharp from 'sharp';
 import User from '../models/User.js';
 import { normalizeCity, SUPPORTED_CITIES } from '../config/cities.js';
 import { validateIndianMobile } from '../utils/validation.js';
 import { getIO } from '../socket/index.js';
+import { uploadBufferToGridFS, openDownloadStreamFromGridFS, deleteFromGridFS } from '../utils/gridfs.js';
 
 /**
  * GET /api/users/me or GET /api/users/profile
@@ -322,5 +324,161 @@ export const updateProfileById = async (req, res, next) => {
     }
   } catch (error) {
     return next(error);
+  }
+};
+
+/**
+ * POST /api/users/profile/avatar
+ * Upload and process user avatar photo
+ * Uses sharp with attention-based saliency (skin-tone & face detection)
+ * to automatically center on the user's face and convert to 400x400 WebP.
+ * Stores binary in MongoDB GridFS 'avatars' bucket.
+ */
+export const uploadUserAvatar = async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please select an image file to upload (field name: "avatar").'
+      });
+    }
+
+    const user = req.user;
+
+    // 1. Validate image format & integrity using sharp metadata
+    let metadata;
+    try {
+      metadata = await sharp(req.file.buffer).metadata();
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: 'The uploaded file is not a valid or readable image.'
+      });
+    }
+
+    if (!metadata.format || !['jpeg', 'png', 'webp', 'avif', 'tiff', 'gif'].includes(metadata.format)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unsupported image format. Please upload JPEG, PNG, or WebP.'
+      });
+    }
+
+    // 2. Process image with sharp:
+    // - .rotate() handles EXIF camera orientation automatically
+    // - .resize(400, 400, { fit: 'cover', position: sharp.strategy.attention })
+    //   focuses on the prominent subject/face using luminance frequency & skin tone detection
+    // - .webp({ quality: 85, effort: 4 }) provides high compression & fidelity
+    const processedBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(400, 400, {
+        fit: 'cover',
+        position: sharp.strategy.attention
+      })
+      .webp({ quality: 85, effort: 4 })
+      .toBuffer();
+
+    // 3. Clean up previously uploaded avatar from GridFS to prevent orphaned storage
+    if (user.avatarFileId) {
+      await deleteFromGridFS(user.avatarFileId, 'avatars');
+    }
+
+    // 4. Store newly processed WebP avatar buffer in GridFS 'avatars' bucket
+    const storageFilename = `avatar_${user._id}_${Date.now()}.webp`;
+    const gridFsFileId = await uploadBufferToGridFS(
+      processedBuffer,
+      storageFilename,
+      {
+        userId: user._id,
+        contentType: 'image/webp',
+        uploadedAt: new Date()
+      },
+      'avatars'
+    );
+
+    // 5. Update user model
+    const avatarUrl = `/api/users/avatar/${gridFsFileId}`;
+    user.avatar = avatarUrl;
+    user.avatarFileId = gridFsFileId;
+
+    if (user.role === 'provider') {
+      if (!user.providerDetails) {
+        user.providerDetails = {};
+      }
+      user.providerDetails.avatar = avatarUrl;
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile picture updated successfully with smart face-centering.',
+      avatar: user.avatar,
+      user: user.toSafeObject()
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * DELETE /api/users/profile/avatar
+ * Remove profile picture and reset to initials
+ */
+export const deleteUserAvatar = async (req, res, next) => {
+  try {
+    const user = req.user;
+
+    if (user.avatarFileId) {
+      await deleteFromGridFS(user.avatarFileId, 'avatars');
+    }
+
+    user.avatar = '';
+    user.avatarFileId = null;
+
+    if (user.role === 'provider' && user.providerDetails) {
+      user.providerDetails.avatar = '';
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile picture removed successfully.',
+      avatar: '',
+      user: user.toSafeObject()
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * GET /api/users/avatar/:fileId
+ * Public streaming endpoint to serve avatar WebP images with immutable cache headers
+ */
+export const streamAvatar = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    if (!fileId || !mongoose.Types.ObjectId.isValid(fileId)) {
+      return res.status(400).json({ success: false, error: 'Invalid avatar identifier.' });
+    }
+
+    const downloadStream = openDownloadStreamFromGridFS(fileId, 'avatars');
+
+    downloadStream.on('error', () => {
+      if (!res.headersSent) {
+        return res.status(404).json({ success: false, error: 'Avatar image not found.' });
+      }
+    });
+
+    res.setHeader('Content-Type', 'image/webp');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
+    downloadStream.pipe(res);
+  } catch (error) {
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, error: 'Failed to stream avatar image.' });
+    }
   }
 };

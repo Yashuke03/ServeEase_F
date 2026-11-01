@@ -20,7 +20,7 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { chatApi } from '../../services/api';
+import { chatApi, getAvatarUrl } from '../../services/api';
 import { getSocket, connectSocket } from '../../services/socket';
 
 /**
@@ -691,7 +691,7 @@ export default function ChatInterface({
                   {/* Avatar */}
                   <div style={{ position: 'relative' }}>
                     <img
-                      src={other.providerDetails?.avatar || defaultAvatar}
+                      src={getAvatarUrl(other.avatar || other.providerDetails?.avatar) || defaultAvatar}
                       alt={other.name || 'User'}
                       style={{
                         width: '2.75rem',
@@ -825,7 +825,7 @@ export default function ChatInterface({
                 {/* Avatar */}
                 <div style={{ position: 'relative' }}>
                   <img
-                    src={activeOther.providerDetails?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80'}
+                    src={getAvatarUrl(activeOther.avatar || activeOther.providerDetails?.avatar) || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80'}
                     alt={activeOther.name}
                     style={{
                       width: '2.5rem',

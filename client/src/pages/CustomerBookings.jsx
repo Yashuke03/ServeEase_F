@@ -24,7 +24,7 @@ import BookingChatModal from '../components/chat/BookingChatModal';
 import BookingMapModal from '../components/map/BookingMapModal';
 import { useAuth } from '../context/AuthContext';
 import { getCityDisplayName } from '../data/cities';
-import { bookingApi, reviewApi } from '../services/api';
+import { bookingApi, reviewApi, getAvatarUrl } from '../services/api';
 import { connectSocket } from '../services/socket';
 
 /**
@@ -455,7 +455,7 @@ export default function CustomerBookings() {
                     {/* Provider Info & Service Title */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <img
-                        src={providerObj.providerDetails?.avatar || defaultAvatar}
+                        src={getAvatarUrl(providerObj.avatar || providerObj.providerDetails?.avatar) || defaultAvatar}
                         alt={providerObj.name || 'Technician'}
                         style={{
                           width: '3.25rem',

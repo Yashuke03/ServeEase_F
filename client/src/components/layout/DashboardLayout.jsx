@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getCityDisplayName } from '../../data/cities';
-import { providerApi, notificationApi } from '../../services/api';
+import { providerApi, notificationApi, getAvatarUrl } from '../../services/api';
 import { connectSocket } from '../../services/socket';
 import ThemeToggle from '../common/ThemeToggle';
 
@@ -148,6 +148,8 @@ export default function DashboardLayout({ children, title, subtitle }) {
     ? user.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
     : 'U';
 
+  const avatarUrl = getAvatarUrl(user?.avatar || user?.providerDetails?.avatar);
+
   const userCityDisplay = user?.city ? getCityDisplayName(user.city) : 'Sangli';
 
   // Navigation Items by Role
@@ -178,7 +180,8 @@ export default function DashboardLayout({ children, title, subtitle }) {
 
   const adminNavItems = [
     { label: 'Admin Portal', path: '/admin/dashboard', icon: <Shield size={18} className="nav-icon" />, end: true },
-    { label: 'Services Directory', path: '/services', icon: <Compass size={18} className="nav-icon" /> }
+    { label: 'Services Directory', path: '/services', icon: <Compass size={18} className="nav-icon" /> },
+    { label: 'Admin Profile', path: '/admin/profile', icon: <User size={18} className="nav-icon" /> }
   ];
 
   const navItems = 
@@ -203,7 +206,9 @@ export default function DashboardLayout({ children, title, subtitle }) {
   const profilePath = 
     user?.role === 'provider' 
       ? '/provider/profile' 
-      : '/customer/profile';
+      : user?.role === 'admin'
+        ? '/admin/profile'
+        : '/customer/profile';
 
   return (
     <div className="dashboard-shell">
@@ -222,7 +227,7 @@ export default function DashboardLayout({ children, title, subtitle }) {
         <div className="dashboard-sidebar-header">
           <Link to={brandHomeLink} className="brand-logo" style={{ textDecoration: 'none' }}>
             <div className="brand-logo-icon">
-              <Wrench size={18} />
+              <img src="/logo.png" alt="ServeEase Logo" />
             </div>
             <span>Serve<span className="brand-name-highlight">Ease</span></span>
           </Link>
@@ -309,8 +314,17 @@ export default function DashboardLayout({ children, title, subtitle }) {
         {/* Sidebar Footer User Card */}
         <div className="dashboard-sidebar-footer">
           <div className="dashboard-sidebar-user">
-            <div className="dashboard-avatar">
-              {initials}
+            <div className="dashboard-avatar" style={{ overflow: 'hidden' }}>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={user?.name || 'User'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
+                initials
+              )}
             </div>
             <div className="dashboard-user-info">
               <span className="dashboard-user-name" title={user?.name}>{user?.name || 'User'}</span>
@@ -453,17 +467,40 @@ export default function DashboardLayout({ children, title, subtitle }) {
                 aria-haspopup="true"
                 aria-label="Open user profile menu"
               >
-                <div className="dashboard-avatar" style={{ width: '1.85rem', height: '1.85rem', fontSize: '0.8rem' }}>
-                  {initials}
+                <div className="dashboard-avatar" style={{ width: '1.85rem', height: '1.85rem', fontSize: '0.8rem', overflow: 'hidden' }}>
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={user?.name || 'User'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  ) : (
+                    initials
+                  )}
                 </div>
                 <ChevronDown size={14} style={{ color: 'var(--color-text-muted)' }} />
               </button>
 
               {profileDropdownOpen && (
                 <div className="dashboard-profile-dropdown" role="menu">
-                  <div className="dropdown-user-header">
-                    <div className="dropdown-user-name">{user?.name}</div>
-                    <div className="dropdown-user-email">{user?.email}</div>
+                  <div className="dropdown-user-header" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div className="dashboard-avatar" style={{ width: '2.25rem', height: '2.25rem', fontSize: '0.95rem', overflow: 'hidden', flexShrink: 0 }}>
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={user?.name || 'User'}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        initials
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                      <div className="dropdown-user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name}</div>
+                      <div className="dropdown-user-email" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email}</div>
+                    </div>
                   </div>
 
                   <Link 

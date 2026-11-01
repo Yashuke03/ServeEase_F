@@ -37,9 +37,35 @@ const resolveApiBaseUrl = () => {
 export const API_BASE_URL = resolveApiBaseUrl();
 
 /**
+ * Normalizes avatar image URLs, prefixing with backend host if relative
+ */
+export const getAvatarUrl = (avatarPath) => {
+  if (!avatarPath) return '';
+  if (avatarPath.startsWith('http://') || avatarPath.startsWith('https://') || avatarPath.startsWith('data:')) {
+    return avatarPath;
+  }
+  return `${API_BASE_URL}${avatarPath.startsWith('/') ? avatarPath : `/${avatarPath}`}`;
+};
+
+/**
  * Default request timeout in milliseconds (15 seconds)
  */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+
+// Inactivity threshold: 15 minutes of zero user actions
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+
+function isUserIdle() {
+  try {
+    const last = parseInt(localStorage.getItem('serveease_last_activity') || '0', 10);
+    if (last > 0 && Date.now() - last >= INACTIVITY_TIMEOUT_MS) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 /**
  * Singleton Refresh Token Promise to handle concurrent 401s smoothly
@@ -47,6 +73,10 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 let refreshPromise = null;
 
 async function executeTokenRefresh() {
+  if (isUserIdle()) {
+    throw new Error('Session expired. Please log in again.');
+  }
+
   if (!refreshPromise) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
@@ -154,43 +184,19 @@ async function request(endpoint, options = {}) {
   }
 
   if (!res.ok || (data && data.success === false)) {
+    const isSilentAuthRoute = url.includes('/api/auth/me') || url.includes('/api/auth/refresh') || url.includes('/api/auth/login');
+
     // If 401 Unauthorized and not already retrying, attempt silent refresh using Refresh Token
     const isAuthRoute = url.includes('/api/auth/login') || url.includes('/api/auth/refresh');
     if (res.status === 401 && !options._isRetry && !isAuthRoute) {
-      // Check if user has been inactive for > 15 minutes (no actions)
-      let isIdle = false;
-      try {
-        const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('serveease_last_activity') : null;
-        if (stored) {
-          const lastActivity = parseInt(stored, 10);
-          if (Date.now() - lastActivity >= 15 * 60 * 1000) {
-            isIdle = true;
-          }
-        }
-      } catch {
-        // ignore storage errors
-      }
-
-      if (isIdle) {
-        // User has been idle for >= 15 minutes: do NOT auto-renew token, enforce logout
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('auth:session-expired', {
-            detail: { message: 'You were logged out due to 15 minutes of inactivity. Please sign in again.' }
-          }));
-        }
-        const idleErr = new Error('Session expired due to 15 minutes of inactivity.');
-        idleErr.status = 401;
-        throw idleErr;
-      }
-
       try {
         await executeTokenRefresh();
         // Retry the original request with the fresh session cookie
         return await request(endpoint, { ...options, _isRetry: true });
-      } catch {
-        // Refresh token itself expired or invalid — dispatch session expired
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { message: 'Session expired' } }));
+      } catch (err) {
+        // Refresh token itself expired, invalid, or blocked by 15-minute idle timeout
+        if (typeof window !== 'undefined' && !isSilentAuthRoute) {
+          window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { message: err?.message || 'Session expired. Please log in again.' } }));
         }
       }
     }
@@ -209,8 +215,8 @@ async function request(endpoint, options = {}) {
     }
     console.error(`[API Error ${res.status}] ${url}:`, errorMsg);
 
-    // If 401 on non-retryable route, notify auth context
-    if (res.status === 401 && typeof window !== 'undefined' && !url.includes('/api/auth/login')) {
+    // If 401 on active application route (excluding background discovery/login routes), notify auth context
+    if (res.status === 401 && typeof window !== 'undefined' && !isSilentAuthRoute) {
       window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { message: errorMsg } }));
     }
 
@@ -280,8 +286,8 @@ export async function fetchDocumentBlob(endpoint) {
  * Authentication Endpoints (/api/auth)
  */
 export const authApi = {
-  login: async (email, password, role) => {
-    const payload = { email, password };
+  login: async (email, password, role, rememberMe = false) => {
+    const payload = { email, password, rememberMe: Boolean(rememberMe) };
     if (role) {
       payload.role = role;
     }
@@ -373,6 +379,23 @@ export const userApi = {
     return request('/api/users/me', {
       method: 'PATCH',
       body: JSON.stringify(profileData)
+    });
+  },
+
+  uploadAvatar: async (fileOrFormData) => {
+    const formData = fileOrFormData instanceof FormData ? fileOrFormData : new FormData();
+    if (!(fileOrFormData instanceof FormData)) {
+      formData.append('avatar', fileOrFormData);
+    }
+    return request('/api/users/profile/avatar', {
+      method: 'POST',
+      body: formData
+    });
+  },
+
+  deleteAvatar: async () => {
+    return request('/api/users/profile/avatar', {
+      method: 'DELETE'
     });
   }
 };
@@ -842,6 +865,7 @@ export const systemApi = {
 
 export default {
   API_BASE_URL,
+  getAvatarUrl,
   authApi,
   userApi,
   providerApi,

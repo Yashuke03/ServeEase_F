@@ -1,6 +1,7 @@
 import React from 'react';
 import { Star, MapPin, Clock, ShieldCheck, CheckCircle2, Sparkles } from 'lucide-react';
 import Button from '../common/Button';
+import { getAvatarUrl } from '../../services/api';
 
 /**
  * Provider Card Component
@@ -36,7 +37,7 @@ export default function ProviderCard({ provider }) {
       {/* Header with Avatar & Details */}
       <div className="provider-card-header">
         <img
-          src={provider.avatar || defaultAvatar}
+          src={getAvatarUrl(provider.avatar) || defaultAvatar}
           alt={`Profile portrait of ${provider.name}`}
           className="provider-avatar"
           loading="lazy"
