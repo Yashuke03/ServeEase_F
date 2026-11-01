@@ -428,7 +428,7 @@ export default function CustomerBookings() {
               const statusBadge = getStatusBadge(b.status, b, user?._id);
               const providerObj = b.provider || {};
               const defaultAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80';
-              const canCancel = ['pending', 'accepted'].includes(b.status);
+              const canCancel = ['pending', 'accepted', 'in_progress'].includes(b.status);
 
               return (
                 <article

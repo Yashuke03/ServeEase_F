@@ -527,7 +527,7 @@ export const cancelBooking = async (req, res, next) => {
     const updated = await Booking.findOneAndUpdate(
       {
         _id: id,
-        status: { $in: ['pending', 'accepted'] }
+        status: { $in: ['pending', 'accepted', 'in_progress'] }
       },
       {
         $set: {
