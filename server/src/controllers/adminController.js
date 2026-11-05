@@ -8,9 +8,10 @@ import VerificationDocument from '../models/VerificationDocument.js';
 import { deleteFromGridFS } from '../utils/gridfs.js';
 import { recalculateProviderRating } from './reviewController.js';
 import { getCityDisplayName, normalizeCity } from '../config/cities.js';
+import { getIO } from '../socket/index.js';
 
 // Safe customer / provider projection for admin views
-const USER_SAFE_FIELDS = 'name email role city phoneNumber status verificationStatus emailVerified emailVerifiedAt termsAccepted termsAcceptedAt providerDetails createdAt updatedAt';
+const USER_SAFE_FIELDS = 'name email role city phoneNumber status verificationStatus emailVerified emailVerifiedAt termsAccepted termsAcceptedAt providerDetails location createdAt updatedAt';
 
 /**
  * Helper to compute platform analytics and distributions directly from MongoDB
@@ -1320,12 +1321,13 @@ export const updateBookingMessage = async (req, res, next) => {
 
 /**
  * DELETE /api/admin/bookings/:id
- * Delete a booking appointment (e.g. fraudulent, harmful or invalid booking)
+ * Administrative booking cancellation with participant notifications and data preservation.
+ * Sets status to 'cancelled', records audit trail, and notifies both Customer and Provider.
  */
 export const deleteBooking = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body || req.query || {};
+    const { reason, permanent } = req.body || req.query || {};
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, error: 'Invalid booking identifier.' });
@@ -1336,7 +1338,7 @@ export const deleteBooking = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Booking appointment not found.' });
     }
 
-    // Capture details before deletion for audit trail
+    // Capture details before modification/deletion for audit trail
     const bookingDetails = {
       serviceName: booking.serviceName,
       status: booking.status,
@@ -1348,30 +1350,149 @@ export const deleteBooking = async (req, res, next) => {
       description: booking.description
     };
 
-    // Remove reviews associated with this booking if any
-    await Review.deleteMany({ booking: booking._id });
+    const cancelReason = (reason || 'Cancelled by administrator due to policy violation or scheduling conflict').trim();
 
-    // Remove notifications referencing this booking if any
-    await Notification.deleteMany({ bookingId: booking._id });
+    // Prevent duplicate notifications if repeated on an already cancelled booking
+    if (booking.status === 'cancelled' && permanent !== 'true' && permanent !== true) {
+      return res.status(200).json({
+        success: true,
+        message: 'Booking appointment is already cancelled.',
+        alreadyCancelled: true,
+        booking
+      });
+    }
 
-    // Delete booking
-    await Booking.findByIdAndDelete(id);
+    // Optional hard deletion if explicitly specified
+    if (permanent === 'true' || permanent === true) {
+      await Review.deleteMany({ booking: booking._id });
+      await Notification.deleteMany({ booking: booking._id });
+      await Booking.findByIdAndDelete(id);
 
-    // Record audit log
+      await AuditLog.create({
+        admin: req.user._id,
+        adminName: req.user.name,
+        adminEmail: req.user.email,
+        action: 'booking_deleted',
+        targetId: booking._id,
+        targetType: 'Booking',
+        reason: cancelReason,
+        details: bookingDetails
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Booking has been permanently removed.'
+      });
+    }
+
+    // Preferred workflow: Update status to 'cancelled', preserving history, references and payment records
+    booking.status = 'cancelled';
+    booking.cancelledBy = req.user._id;
+    booking.cancellationReason = cancelReason;
+
+    if (!Array.isArray(booking.statusHistory)) {
+      booking.statusHistory = [];
+    }
+    booking.statusHistory.push({
+      status: 'cancelled',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: `Cancelled by administrator: ${cancelReason}`
+    });
+
+    await booking.save();
+
+    // 1. Notify Customer
+    const customerMsg = `Your appointment for "${booking.serviceName}" scheduled on ${booking.bookingDate} (${booking.bookingTime}) has been cancelled by an administrator.${cancelReason ? ` Reason: ${cancelReason}` : ''}`;
+    let customerNotif = null;
+    try {
+      customerNotif = await Notification.create({
+        recipient: booking.customer,
+        type: 'booking_cancelled',
+        title: 'Booking Cancelled by Administrator',
+        message: customerMsg,
+        booking: booking._id,
+        data: {
+          bookingId: booking._id,
+          serviceName: booking.serviceName,
+          bookingDate: booking.bookingDate,
+          bookingTime: booking.bookingTime,
+          cancelledByRole: 'admin',
+          cancellationReason: cancelReason
+        }
+      });
+    } catch (notifErr) {
+      console.warn('Could not persist admin cancellation notification for customer:', notifErr.message);
+    }
+
+    // 2. Notify Provider (if assigned)
+    let providerNotif = null;
+    if (booking.provider) {
+      const providerMsg = `The appointment for "${booking.serviceName}" scheduled on ${booking.bookingDate} (${booking.bookingTime}) has been cancelled by an administrator.${cancelReason ? ` Reason: ${cancelReason}` : ''}`;
+      try {
+        providerNotif = await Notification.create({
+          recipient: booking.provider,
+          type: 'booking_cancelled',
+          title: 'Booking Cancelled by Administrator',
+          message: providerMsg,
+          booking: booking._id,
+          data: {
+            bookingId: booking._id,
+            serviceName: booking.serviceName,
+            bookingDate: booking.bookingDate,
+            bookingTime: booking.bookingTime,
+            cancelledByRole: 'admin',
+            cancellationReason: cancelReason
+          }
+        });
+      } catch (notifErr) {
+        console.warn('Could not persist admin cancellation notification for provider:', notifErr.message);
+      }
+    }
+
+    // 3. Dispatch real-time Socket.IO events to both parties
+    try {
+      const io = getIO();
+      if (io) {
+        const customerId = (booking.customer?._id || booking.customer)?.toString();
+        const providerId = (booking.provider?._id || booking.provider)?.toString();
+        const statusPayload = {
+          bookingId: booking._id.toString(),
+          status: 'cancelled',
+          cancellationReason: cancelReason,
+          cancelledByRole: 'admin',
+          booking
+        };
+
+        if (customerId) {
+          if (customerNotif) io.to(`user_${customerId}`).emit('new_notification', customerNotif);
+          io.to(`user_${customerId}`).emit('booking_status_updated', statusPayload);
+        }
+        if (providerId) {
+          if (providerNotif) io.to(`user_${providerId}`).emit('new_notification', providerNotif);
+          io.to(`user_${providerId}`).emit('booking_status_updated', statusPayload);
+        }
+      }
+    } catch (socketErr) {
+      console.warn('Socket broadcast warning on admin booking cancellation:', socketErr.message);
+    }
+
+    // 4. Record Audit Log
     await AuditLog.create({
       admin: req.user._id,
       adminName: req.user.name,
       adminEmail: req.user.email,
-      action: 'booking_deleted',
+      action: 'booking_cancelled',
       targetId: booking._id,
       targetType: 'Booking',
-      reason: (reason || 'Deleted by administrator due to policy violation or security risk').trim(),
+      reason: cancelReason,
       details: bookingDetails
     });
 
     return res.status(200).json({
       success: true,
-      message: 'Booking has been permanently removed.'
+      message: 'Booking cancelled by administrator and participants notified.',
+      booking
     });
   } catch (error) {
     return next(error);

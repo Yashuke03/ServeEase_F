@@ -22,9 +22,9 @@ export const getMyProfile = async (req, res) => {
  * Safely update user's own profile fields
  * 
  * Strict Allowlist:
- * - Customers: name, phoneNumber, city
- * - Providers: name, phoneNumber, city, and providerDetails (category, title, servicesOffered,
- *   experienceYears, serviceArea, startingPrice, hourlyRate, isAvailable, bio)
+ * - Customers: name, phoneNumber, city, location (latitude, longitude, address)
+ * - Providers: name, phoneNumber, city, location, and providerDetails (category, title, servicesOffered,
+ *   experienceYears, serviceArea, startingPrice, hourlyRate, isAvailable, bio, location)
  * 
  * Privileged fields (role, status, passwordHash, email, _id, isVerified, isDemo, rating, reviewCount)
  * are strictly protected against privilege escalation and mass-assignment.
@@ -83,7 +83,48 @@ export const updateMyProfile = async (req, res, next) => {
       }
     }
 
-    // 4. Provider-specific details (only allowed if authenticated user is a provider)
+    // 4. Validate and update Location / Home Address (for all users, especially customers)
+    if (body.location !== undefined || body.address !== undefined || (user.role !== 'provider' && (body.latitude !== undefined || body.longitude !== undefined))) {
+      const loc = (body.location && typeof body.location === 'object') ? body.location : {};
+      let lat = body.latitude !== undefined ? body.latitude : loc.latitude;
+      let lng = body.longitude !== undefined ? body.longitude : loc.longitude;
+      let addr = body.address !== undefined ? body.address : (body.locationAddress !== undefined ? body.locationAddress : loc.address);
+
+      if (lat !== undefined && lat !== null && lat !== '') {
+        const numLat = Number(lat);
+        if (isNaN(numLat) || numLat < -90 || numLat > 90) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid latitude. Latitude must be a number between -90 and 90.'
+          });
+        }
+        lat = numLat;
+      } else {
+        lat = null;
+      }
+
+      if (lng !== undefined && lng !== null && lng !== '') {
+        const numLng = Number(lng);
+        if (isNaN(numLng) || numLng < -180 || numLng > 180) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid longitude. Longitude must be a number between -180 and 180.'
+          });
+        }
+        lng = numLng;
+      } else {
+        lng = null;
+      }
+
+      const existingLoc = user.location || {};
+      user.location = {
+        latitude: lat,
+        longitude: lng,
+        address: typeof addr === 'string' ? addr.trim() : (existingLoc.address || '')
+      };
+    }
+
+    // 5. Provider-specific details (only allowed if authenticated user is a provider)
     let availabilityToggled = false;
     if (user.role === 'provider') {
       const details = body.providerDetails || body;
@@ -207,6 +248,7 @@ export const updateMyProfile = async (req, res, next) => {
           longitude: lng,
           address: typeof addr === 'string' ? addr.trim() : (user.providerDetails.location?.address || '')
         };
+        user.location = user.providerDetails.location;
       }
 
       // Security rule: isVerified, isDemo, rating, and reviewCount are strictly protected

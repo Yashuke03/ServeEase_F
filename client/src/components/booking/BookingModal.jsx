@@ -11,7 +11,9 @@ import {
   ShieldCheck, 
   FileText,
   DollarSign,
-  ArrowRight
+  ArrowRight,
+  Home,
+  Crosshair
 } from 'lucide-react';
 import Button from '../common/Button';
 import { useAuth } from '../../context/AuthContext';
@@ -49,12 +51,19 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
   // Current Asia/Kolkata date string
   const kolkataToday = React.useMemo(() => getKolkataNow().dateStr, [isOpen]);
 
+  const savedHomeAddress = user?.location?.address || user?.address || '';
+  const hasSavedHomeCoords = user?.location?.latitude !== null && user?.location?.latitude !== undefined && user?.location?.longitude !== null && user?.location?.longitude !== undefined;
+
   // Form states
   const [selectedService, setSelectedService] = useState('');
   const [bookingDate, setBookingDate] = useState('');
   const [bookingTime, setBookingTime] = useState('');
+  const [addressOption, setAddressOption] = useState('saved'); // 'saved' | 'custom'
   const [serviceAddress, setServiceAddress] = useState('');
+  const [bookingLocation, setBookingLocation] = useState(null);
   const [description, setDescription] = useState('');
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoStatus, setGeoStatus] = useState('');
   
   // Workflow states
   const [step, setStep] = useState('form'); // 'form' | 'confirm' | 'success'
@@ -99,7 +108,22 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
 
       setBookingDate(defaultDate);
       setBookingTime(defaultSlot);
-      setServiceAddress(user?.address || '');
+
+      const homeAddr = user?.location?.address || user?.address || '';
+      const hasCoords = user?.location?.latitude !== null && user?.location?.latitude !== undefined && user?.location?.longitude !== null && user?.location?.longitude !== undefined;
+
+      if (homeAddr) {
+        setAddressOption('saved');
+        setServiceAddress(homeAddr);
+        setBookingLocation(hasCoords ? { latitude: Number(user.location.latitude), longitude: Number(user.location.longitude) } : null);
+      } else {
+        setAddressOption('custom');
+        setServiceAddress('');
+        setBookingLocation(null);
+      }
+
+      setGeoStatus('');
+      setGeoLoading(false);
       setDescription('');
       setStep('form');
       setError(null);
@@ -107,6 +131,31 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
       setCreatedBooking(null);
     }
   }, [isOpen, provider, availableServices, user]);
+
+  const handleDetectGPS = () => {
+    if (!navigator.geolocation) {
+      setGeoStatus('Geolocation is not supported by your browser.');
+      return;
+    }
+    setGeoLoading(true);
+    setGeoStatus('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setBookingLocation({ latitude: lat, longitude: lng });
+        setGeoLoading(false);
+        setGeoStatus(`📍 GPS location attached: ${lat}, ${lng}`);
+      },
+      (err) => {
+        setGeoLoading(false);
+        let msg = 'Could not capture GPS location. You can proceed with street address.';
+        if (err.code === 1) msg = 'Location permission was denied. You can proceed with street address.';
+        setGeoStatus(msg);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  };
 
   if (!isOpen || !provider) return null;
 
@@ -169,6 +218,7 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
         serviceName: selectedService,
         city: provider.city || provider.providerDetails?.city || 'sangli',
         serviceAddress: serviceAddress.trim(),
+        location: bookingLocation,
         bookingDate,
         bookingTime,
         description: description.trim()
@@ -433,19 +483,134 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
               </div>
 
               {/* Service Address */}
-              <div className="form-group" style={{ marginBottom: '1.15rem' }}>
-                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem' }}>
-                  Doorstep Service Address <span style={{ color: 'var(--color-danger)' }}>*</span>
-                </label>
-                <textarea
-                  rows={2}
-                  value={serviceAddress}
-                  onChange={(e) => setServiceAddress(e.target.value)}
-                  placeholder="Apartment/Flat, Building name, Street, Landmark..."
-                  className="form-control"
-                  style={{ width: '100%', resize: 'vertical' }}
-                  required
-                />
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
+                    Doorstep Service Address <span style={{ color: 'var(--color-danger)' }}>*</span>
+                  </label>
+
+                  {savedHomeAddress && (
+                    <div style={{ display: 'inline-flex', gap: '0.4rem', fontSize: '0.78rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddressOption('saved');
+                          setServiceAddress(savedHomeAddress);
+                          setBookingLocation(hasSavedHomeCoords ? { latitude: Number(user.location.latitude), longitude: Number(user.location.longitude) } : null);
+                          setGeoStatus('');
+                        }}
+                        style={{
+                          background: addressOption === 'saved' ? 'var(--primary-50, #eff6ff)' : 'transparent',
+                          color: addressOption === 'saved' ? 'var(--primary-700, #1d4ed8)' : 'var(--color-text-muted)',
+                          border: `1px solid ${addressOption === 'saved' ? 'var(--primary-300, #93c5fd)' : 'var(--color-border)'}`,
+                          borderRadius: 'var(--radius-sm, 4px)',
+                          padding: '0.15rem 0.5rem',
+                          cursor: 'pointer',
+                          fontWeight: addressOption === 'saved' ? 600 : 500,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.2rem'
+                        }}
+                      >
+                        <Home size={12} /> Use Home Address
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddressOption('custom');
+                          setServiceAddress('');
+                          setBookingLocation(null);
+                          setGeoStatus('');
+                        }}
+                        style={{
+                          background: addressOption === 'custom' ? 'var(--primary-50, #eff6ff)' : 'transparent',
+                          color: addressOption === 'custom' ? 'var(--primary-700, #1d4ed8)' : 'var(--color-text-muted)',
+                          border: `1px solid ${addressOption === 'custom' ? 'var(--primary-300, #93c5fd)' : 'var(--color-border)'}`,
+                          borderRadius: 'var(--radius-sm, 4px)',
+                          padding: '0.15rem 0.5rem',
+                          cursor: 'pointer',
+                          fontWeight: addressOption === 'custom' ? 600 : 500,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.2rem'
+                        }}
+                      >
+                        <MapPin size={12} /> Custom Location
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {addressOption === 'saved' && savedHomeAddress ? (
+                  <div style={{
+                    padding: '0.75rem 0.9rem',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    border: '1px solid var(--color-border)',
+                    fontSize: '0.86rem',
+                    marginBottom: '0.35rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem' }}>
+                      <Home size={16} style={{ color: 'var(--primary-600)', flexShrink: 0, marginTop: '2px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--color-text-title)', marginBottom: '0.15rem' }}>
+                          Saved Home Address:
+                        </div>
+                        <div style={{ color: 'var(--color-text-body)' }}>{savedHomeAddress}</div>
+                        {hasSavedHomeCoords && (
+                          <div style={{ fontSize: '0.78rem', color: 'var(--primary-700)', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            <span>📍 GPS Coordinates Attached:</span>
+                            <strong>{Number(user.location.latitude).toFixed(4)}, {Number(user.location.longitude).toFixed(4)}</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <textarea
+                      rows={2}
+                      value={serviceAddress}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setServiceAddress(val);
+                        if (val) {
+                          const coordMatch = val.match(/(?:@|q=)?(-?\d{1,2}\.\d{3,8})[,\s]+(-?\d{1,3}\.\d{3,8})/);
+                          if (coordMatch) {
+                            const lat = parseFloat(coordMatch[1]);
+                            const lng = parseFloat(coordMatch[2]);
+                            if (!isNaN(lat) && lat >= -90 && lat <= 90 && !isNaN(lng) && lng >= -180 && lng <= 180) {
+                              setBookingLocation({ latitude: lat, longitude: lng });
+                              setGeoStatus(`📍 Attached coordinates from Google Maps: ${lat}, ${lng}`);
+                            }
+                          }
+                        }
+                      }}
+                      placeholder="Apartment/Flat, Building name, Street, Landmark..."
+                      className="form-control"
+                      style={{ width: '100%', resize: 'vertical' }}
+                      required
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        onClick={handleDetectGPS}
+                        disabled={geoLoading}
+                        className="btn btn-outline btn-sm"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', padding: '0.2rem 0.55rem' }}
+                      >
+                        <Crosshair size={13} className={geoLoading ? 'spin-animation' : ''} />
+                        {geoLoading ? 'Detecting GPS...' : 'Attach Current GPS Location'}
+                      </button>
+                      {geoStatus && (
+                        <span style={{ fontSize: '0.78rem', color: geoStatus.includes('📍') ? 'var(--color-success, #16a34a)' : 'var(--color-text-muted)' }}>
+                          {geoStatus}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Special Instructions */}
@@ -566,6 +731,15 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
                   {serviceAddress}
                 </span>
               </div>
+
+              {bookingLocation && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>GPS Coordinates:</span>
+                  <span style={{ color: 'var(--primary-700)', fontWeight: 600, fontSize: '0.84rem' }}>
+                    📍 {Number(bookingLocation.latitude).toFixed(4)}, {Number(bookingLocation.longitude).toFixed(4)}
+                  </span>
+                </div>
+              )}
 
               {description && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>

@@ -423,7 +423,11 @@ export const providerApi = {
     if (category && category !== 'all') params.set('category', category);
     if (serviceArea && serviceArea.trim()) params.set('serviceArea', serviceArea.trim());
     if (available) params.set('available', 'true');
-    if (verified) params.set('verified', 'true');
+    if (verified === true || verified === 'true') {
+      params.set('verified', 'true');
+    } else if (verified === false || verified === 'false') {
+      params.set('verified', 'all');
+    }
     if (minRating !== undefined && minRating !== null && minRating !== '') params.set('minRating', String(minRating));
     if (minPrice !== undefined && minPrice !== null && minPrice !== '') params.set('minPrice', String(minPrice));
     if (maxPrice !== undefined && maxPrice !== null && maxPrice !== '') params.set('maxPrice', String(maxPrice));

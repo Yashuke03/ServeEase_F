@@ -510,8 +510,12 @@ export default function AdminDashboard() {
         reason: bookingDeleteReason
       });
       if (res?.success) {
-        setBookings(prev => prev.filter(b => b._id !== deletingBooking._id));
-        setBookingsTotal(prev => Math.max(0, prev - 1));
+        if (bookingStatusFilter === 'cancelled' || bookingStatusFilter === 'all') {
+          setBookings(prev => prev.map(b => b._id === deletingBooking._id ? { ...b, status: 'cancelled', cancellationReason: bookingDeleteReason } : b));
+        } else {
+          setBookings(prev => prev.filter(b => b._id !== deletingBooking._id));
+          setBookingsTotal(prev => Math.max(0, prev - 1));
+        }
         setDeletingBooking(null);
       } else {
         setBookingDeleteError(res?.error || 'Failed to delete booking.');
@@ -3696,10 +3700,10 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#991b1b', fontWeight: 800 }}>
-                    Delete Booking Appointment
+                    Cancel / Delete Booking Appointment
                   </h3>
                   <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
-                    Permanent removal from platform records
+                    Administrative cancellation with participant notification
                   </p>
                 </div>
               </div>
@@ -3721,7 +3725,7 @@ export default function AdminDashboard() {
               marginBottom: '1rem',
               color: '#9f1239'
             }}>
-              <strong>Warning:</strong> You are about to permanently delete booking <strong>"{deletingBooking.serviceName}"</strong> for customer <strong>{deletingBooking.customer?.name || 'Customer'}</strong> scheduled on <strong>{deletingBooking.bookingDate}</strong>. Any associated reviews or notifications will also be cleared. This action cannot be undone.
+              <strong>Notice:</strong> You are about to cancel booking <strong>"{deletingBooking.serviceName}"</strong> for customer <strong>{deletingBooking.customer?.name || 'Customer'}</strong> scheduled on <strong>{deletingBooking.bookingDate}</strong>. Both the customer and technician will be notified immediately, and historical records will be preserved.
             </div>
 
             {bookingDeleteError && (

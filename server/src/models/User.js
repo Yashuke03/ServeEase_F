@@ -70,6 +70,26 @@ const userSchema = new mongoose.Schema(
       default: '',
       index: true
     },
+    // User's configured location / address (applicable to customers and default profile address)
+    location: {
+      latitude: {
+        type: Number,
+        default: null,
+        min: [-90, 'Latitude must be between -90 and 90'],
+        max: [90, 'Latitude must be between -90 and 90']
+      },
+      longitude: {
+        type: Number,
+        default: null,
+        min: [-180, 'Longitude must be between -180 and 180'],
+        max: [180, 'Longitude must be between -180 and 180']
+      },
+      address: {
+        type: String,
+        trim: true,
+        default: ''
+      }
+    },
     avatar: {
       type: String,
       trim: true,
@@ -244,6 +264,7 @@ userSchema.methods.toSafeObject = function () {
   if (obj.city) {
     obj.cityName = getCityDisplayName(obj.city);
   }
+  obj.address = obj.location?.address || obj.providerDetails?.location?.address || '';
   return obj;
 };
 

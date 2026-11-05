@@ -126,4 +126,43 @@ describe('BookingModal Component', () => {
       expect(onSuccess).toHaveBeenCalled();
     });
   });
+
+  it('displays saved home address when available and allows selecting custom location', async () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
+      user: {
+        _id: 'cust-1',
+        name: 'Amit Joshi',
+        email: 'amit@example.com',
+        role: 'customer',
+        city: 'sangli',
+        emailVerified: true,
+        address: 'Saved Home Flat 402, Vishrambag, Sangli',
+        location: {
+          address: 'Saved Home Flat 402, Vishrambag, Sangli',
+          latitude: 16.8524,
+          longitude: 74.5815
+        }
+      }
+    });
+
+    render(
+      <MemoryRouter>
+        <BookingModal provider={mockProvider} isOpen={true} onClose={vi.fn()} />
+      </MemoryRouter>
+    );
+
+    // Saved home address is displayed
+    expect(screen.getByText(/Saved Home Address:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Saved Home Flat 402, Vishrambag, Sangli/i)).toBeInTheDocument();
+    expect(screen.getByText(/GPS Coordinates Attached/i)).toBeInTheDocument();
+
+    // Switch to Custom Location
+    const customBtn = screen.getByRole('button', { name: /Custom Location/i });
+    fireEvent.click(customBtn);
+
+    // Now textarea is available for custom entry
+    const textarea = screen.getByPlaceholderText(/Apartment\/Flat, Building name/i);
+    expect(textarea).toBeInTheDocument();
+    expect(textarea.value).toBe('');
+  });
 });
