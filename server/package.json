@@ -11,6 +11,8 @@
     "bootstrap:admin:reset": "node src/scripts/createAdmin.js --reset-password",
     "seed:demo": "node src/scripts/seedDemoProviders.js",
     "seed:customer": "node src/scripts/createTestCustomer.js",
+    "seed:provider": "node src/scripts/createTestProvider.js",
+    "seed:admin": "node src/scripts/createTestAdmin.js",
     "test": "node --test --test-concurrency=1 test/**/*.test.js"
   },
   "keywords": [
