@@ -290,8 +290,14 @@ export const AuthProvider = ({ children }) => {
     if (!data || !data.success) {
       throw new Error(data?.error || 'Failed to update profile.');
     }
-    setUser(data.user);
-    return data.user;
+    const resolvedUser = {
+      ...(data.user || {}),
+      location: (data.user?.location?.address || data.user?.location?.latitude !== null)
+        ? data.user.location
+        : (profileData.location || data.user?.location || { address: profileData.address || '', latitude: profileData.latitude, longitude: profileData.longitude })
+    };
+    setUser(resolvedUser);
+    return resolvedUser;
   };
 
   /**

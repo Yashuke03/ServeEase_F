@@ -52,14 +52,18 @@ export default function CustomerProfile() {
   // Synchronize form state from authenticated user or remote profile
   useEffect(() => {
     if (user) {
-      setFormData({
-        name: user.name || '',
-        phoneNumber: user.phoneNumber || '',
-        city: user.city || 'sangli',
-        address: user.location?.address || user.address || '',
-        latitude: user.location?.latitude !== null && user.location?.latitude !== undefined ? String(user.location.latitude) : '',
-        longitude: user.location?.longitude !== null && user.location?.longitude !== undefined ? String(user.location.longitude) : ''
-      });
+      setFormData(prev => ({
+        name: user.name || prev.name || '',
+        phoneNumber: user.phoneNumber || prev.phoneNumber || '',
+        city: user.city || prev.city || 'sangli',
+        address: user.location?.address || user.address || prev.address || '',
+        latitude: user.location?.latitude !== null && user.location?.latitude !== undefined 
+          ? String(user.location.latitude) 
+          : (prev.latitude || ''),
+        longitude: user.location?.longitude !== null && user.location?.longitude !== undefined 
+          ? String(user.location.longitude) 
+          : (prev.longitude || '')
+      }));
       setPhoneError('');
     }
   }, [user]);
@@ -217,6 +221,9 @@ export default function CustomerProfile() {
         name: formData.name.trim(),
         phoneNumber: phoneValidation.normalized,
         city: formData.city,
+        address: (formData.address || '').trim(),
+        latitude: parsedLat,
+        longitude: parsedLng,
         location: {
           address: (formData.address || '').trim(),
           latitude: parsedLat,
