@@ -248,6 +248,33 @@ bookingSchema.index({ customer: 1, provider: 1, bookingDate: 1, bookingTime: 1, 
 bookingSchema.index({ provider: 1, status: 1, createdAt: -1 });
 bookingSchema.index({ customer: 1, status: 1, createdAt: -1 });
 
+// Concurrency Guard 1: Prevent provider double-booking across confirmed slots.
+// At most ONE booking can be in 'accepted' or 'in_progress' status for any provider at a given date & time slot.
+// Multiple pending, cancelled, rejected, or completed bookings remain unconstrained.
+bookingSchema.index(
+  { provider: 1, bookingDate: 1, bookingTime: 1 },
+  {
+    unique: true,
+    name: 'uniq_provider_confirmed_slot',
+    partialFilterExpression: {
+      status: { $in: ['accepted', 'in_progress'] }
+    }
+  }
+);
+
+// Concurrency Guard 2: Prevent customer double-click and duplicate pending submissions.
+// A customer can have at most ONE 'pending' booking for a specific provider, date, and time slot simultaneously.
+bookingSchema.index(
+  { customer: 1, provider: 1, bookingDate: 1, bookingTime: 1 },
+  {
+    unique: true,
+    name: 'uniq_customer_pending_slot',
+    partialFilterExpression: {
+      status: 'pending'
+    }
+  }
+);
+
 const Booking = mongoose.model('Booking', bookingSchema);
 
 export default Booking;

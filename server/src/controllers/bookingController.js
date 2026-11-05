@@ -234,30 +234,41 @@ export const createBooking = async (req, res, next) => {
       });
     }
 
-    // 12. Create Booking document
-    const newBooking = await Booking.create({
-      customer: req.user._id,
-      provider: provider._id,
-      serviceName: serviceName.trim(),
-      category: provider.providerDetails?.category || '',
-      city: canonicalCity,
-      serviceAddress: serviceAddress.trim(),
-      location: bookingLocation,
-      bookingDate: bookingDate.trim(),
-      bookingTime: bookingTime.trim(),
-      description: (description || '').trim(),
-      price: trustedPrice,
-      priceType,
-      status: 'pending',
-      statusHistory: [
-        {
-          status: 'pending',
-          changedAt: new Date(),
-          changedBy: req.user._id,
-          note: 'Booking requested by customer'
-        }
-      ]
-    });
+    // 12. Create Booking document (protected by database partial unique index against concurrent race conditions)
+    let newBooking;
+    try {
+      newBooking = await Booking.create({
+        customer: req.user._id,
+        provider: provider._id,
+        serviceName: serviceName.trim(),
+        category: provider.providerDetails?.category || '',
+        city: canonicalCity,
+        serviceAddress: serviceAddress.trim(),
+        location: bookingLocation,
+        bookingDate: bookingDate.trim(),
+        bookingTime: bookingTime.trim(),
+        description: (description || '').trim(),
+        price: trustedPrice,
+        priceType,
+        status: 'pending',
+        statusHistory: [
+          {
+            status: 'pending',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Booking requested by customer'
+          }
+        ]
+      });
+    } catch (createErr) {
+      if (createErr.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          error: 'You already have a pending booking request with this technician for the requested time slot.'
+        });
+      }
+      throw createErr;
+    }
 
     // Create persistent notification for assigned provider
     try {
@@ -646,39 +657,73 @@ export const acceptBooking = async (req, res, next) => {
       });
     }
 
+    // Check if provider already has an accepted or in-progress booking for this exact date and slot
+    const slotConflict = await Booking.findOne({
+      provider: req.user._id,
+      bookingDate: booking.bookingDate,
+      bookingTime: booking.bookingTime,
+      status: { $in: ['accepted', 'in_progress'] },
+      _id: { $ne: booking._id }
+    });
+
+    if (slotConflict) {
+      return res.status(409).json({
+        success: false,
+        error: 'You already have another confirmed appointment for this time slot. Please decline or reschedule this request.'
+      });
+    }
+
     // Generate booking-specific arrival OTP (only hash and expiry stored for verification; plain OTP never exposed to SP)
     const { seed, hash, expires } = generateArrivalOtpPayload(booking._id);
 
-    // Atomic update
-    const updated = await Booking.findOneAndUpdate(
-      {
-        _id: id,
-        provider: req.user._id,
-        status: 'pending'
-      },
-      {
-        $set: {
-          status: 'accepted',
-          arrivalOtpHash: hash,
-          arrivalOtpExpires: expires,
-          arrivalOtpAttempts: 0,
-          arrivalOtpVerified: false,
-          arrivedAt: null,
-          arrivalOtpSeed: seed
+    // Atomic update protected by unique index against concurrent race conditions
+    let updated;
+    try {
+      updated = await Booking.findOneAndUpdate(
+        {
+          _id: id,
+          provider: req.user._id,
+          status: 'pending'
         },
-        $push: {
-          statusHistory: {
+        {
+          $set: {
             status: 'accepted',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: 'Booking accepted by technician. Arrival OTP generated for customer.'
+            arrivalOtpHash: hash,
+            arrivalOtpExpires: expires,
+            arrivalOtpAttempts: 0,
+            arrivalOtpVerified: false,
+            arrivedAt: null,
+            arrivalOtpSeed: seed
+          },
+          $push: {
+            statusHistory: {
+              status: 'accepted',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Booking accepted by technician. Arrival OTP generated for customer.'
+            }
           }
-        }
-      },
-      { returnDocument: 'after' }
-    )
-      .populate('customer', CUSTOMER_SAFE_FIELDS)
-      .populate('provider', PROVIDER_SAFE_FIELDS);
+        },
+        { returnDocument: 'after' }
+      )
+        .populate('customer', CUSTOMER_SAFE_FIELDS)
+        .populate('provider', PROVIDER_SAFE_FIELDS);
+    } catch (acceptErr) {
+      if (acceptErr.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          error: 'You already have another confirmed appointment for this time slot. Please decline or reschedule this request.'
+        });
+      }
+      throw acceptErr;
+    }
+
+    if (!updated) {
+      return res.status(409).json({
+        success: false,
+        error: 'Booking could not be accepted. It may have already been cancelled, declined, or updated.'
+      });
+    }
 
     // Create persistent notification for customer
     try {

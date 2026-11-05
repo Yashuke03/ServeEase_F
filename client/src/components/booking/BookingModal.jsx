@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   X, 
@@ -68,6 +68,7 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
   // Workflow states
   const [step, setStep] = useState('form'); // 'form' | 'confirm' | 'success'
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [error, setError] = useState(null);
   const [_createdBooking, setCreatedBooking] = useState(null);
 
@@ -201,14 +202,17 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
     setStep('confirm');
   };
 
-  // Submit booking request to backend
+  // Submit booking request to backend (with synchronous ref locking against double-clicks)
   const handleSubmitBooking = async () => {
+    if (isSubmittingRef.current || isSubmitting) return;
+
     if (user?.role === 'customer' && !user?.emailVerified) {
       setError('Please verify your email address to book service appointments.');
       setStep('form');
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setError(null);
 
@@ -237,6 +241,7 @@ export default function BookingModal({ provider, isOpen, onClose, onSuccess }) {
       setError(err.message || 'An error occurred while creating your appointment.');
       setStep('form');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };

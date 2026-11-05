@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Inbox, 
   AlertCircle, 
@@ -36,6 +36,7 @@ export default function ProviderRequests() {
   const [rejectingId, setRejectingId] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const actionLoadingRef = useRef(false);
   const [actionNotice, setActionNotice] = useState(null);
 
   const city = user?.city ? getCityDisplayName(user.city) : 'Sangli';
@@ -64,6 +65,8 @@ export default function ProviderRequests() {
 
   // Handle Accept request
   const handleAcceptRequest = async (bookingId) => {
+    if (actionLoadingRef.current || actionLoading) return;
+    actionLoadingRef.current = true;
     setActionLoading(true);
     setActionNotice(null);
     try {
@@ -77,6 +80,7 @@ export default function ProviderRequests() {
     } catch (err) {
       setActionNotice({ type: 'error', message: err.message || 'Error executing accept action.' });
     } finally {
+      actionLoadingRef.current = false;
       setActionLoading(false);
     }
   };
